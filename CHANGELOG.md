@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-11-17: isolated test emulator
+
+- **Tests never touch the learner's sandbox:** `test:e2e`, `capture`, `bun run dev:test` and unit tests (if they start an emulator) use container `cloud-dojo-emulator-test` on port **9298**. A server on a custom data folder refuses the learner's container `cloud-dojo-emulator` or port 9297. Override with `CLOUD_DOJO_EMULATOR_NAME` / `CLOUD_DOJO_EMULATOR_PORT` (the older `EMULATOR_CONTAINER` / `EMULATOR_PORT` names still work).
+
 ## 2026-11-17: progress fix
 
 Switching module or restarting the server resets the emulator, so live checks dropped to 0 and looked like lost work, and a test run on the learner's port once saved a real session into a temp folder. Progress itself was always sticky; the app now shows it, and test runs can no longer hijack a session.

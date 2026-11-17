@@ -14,7 +14,7 @@ bun run test:e2e     # every module not-green -> green on a fresh emulator (need
 bun scripts/with-temp-data.ts bun scripts/e2e.ts s3-presigned   # one module (always on a temp data dir)
 ```
 
-Run several emulators side by side with `EMULATOR_CONTAINER`, `EMULATOR_PORT` and `CLOUD_DOJO_DATA_DIR`.
+Automated tests use a dedicated emulator (`cloud-dojo-emulator-test` on port 9298) and refuse the learner's container (`cloud-dojo-emulator` on 9297). To run several emulators side by side, set `CLOUD_DOJO_EMULATOR_NAME`, `CLOUD_DOJO_EMULATOR_PORT` and `CLOUD_DOJO_DATA_DIR` (the older `EMULATOR_CONTAINER` / `EMULATOR_PORT` names still work).
 
 ## Adding or changing a module
 

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { parseCredentialsFile, type EmuInfo } from './env'
+import { emulatorConflict } from './info'
 import { CONTAINER, EMULATOR_VERSION, EMU_HOST_DIR, EMU_PORT, IMAGE, APP_DIR } from './paths'
 
 /** The emulator always listens on 9297 inside the container; it names its generated files after that port. */
@@ -47,9 +48,18 @@ export class EmulatorManager {
     return this.busy
   }
 
+  private assertIsolated() {
+    const problem = emulatorConflict(CONTAINER, EMU_PORT)
+    if (problem) {
+      this.set('error', problem)
+      throw new Error(problem)
+    }
+  }
+
   private async boot(forceFresh = false) {
     const t0 = Date.now()
     try {
+      this.assertIsolated()
       const v = await sh(['docker', 'version', '--format', '{{.Server.Version}}'], { quiet: true })
       if (v.code !== 0) {
         this.set('docker-missing', 'Docker is not running. Start Docker Desktop (or OrbStack/Colima) and reload.')
@@ -69,6 +79,7 @@ export class EmulatorManager {
         if (running.out.trim() === 'true' && (await this.tryAttach())) return
       }
       this.set('booting', forceFresh ? 'Fresh cloud: restarting the emulator…' : 'Starting the emulator…')
+      console.log(`[emulator] starting ${CONTAINER} on 127.0.0.1:${EMU_PORT} (image ${IMAGE})`)
       await sh(['docker', 'rm', '-f', CONTAINER], { quiet: true })
       rmSync(path.join(EMU_HOST_DIR, INTERNAL_PORT), { recursive: true, force: true })
       mkdirSync(EMU_HOST_DIR, { recursive: true })
@@ -120,6 +131,8 @@ export class EmulatorManager {
   }
 
   async stop() {
+    this.assertIsolated()
+    console.log(`[emulator] stopping ${CONTAINER}`)
     await sh(['docker', 'rm', '-f', CONTAINER], { quiet: true })
     this.info = undefined
     this.set('stopped', 'Emulator stopped')

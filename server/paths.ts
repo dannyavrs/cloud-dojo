@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
 import path from 'node:path'
+import { DEFAULT_EMU_NAME, DEFAULT_EMU_PORT } from '../shared/ports'
 
 export const APP_DIR = path.resolve(import.meta.dirname, '..')
 /** Where the app kept its data before it was renamed. Only ever read, never written or removed. */
@@ -16,5 +17,5 @@ export const CHILD_HOME = path.join(DATA_DIR, 'child-home')
 export const AWS_CONFIG_PATH = path.join(DATA_DIR, 'aws-config')
 export const EMULATOR_VERSION = '1.0.341'
 export const IMAGE = `cloud-dojo-emulator:${EMULATOR_VERSION}`
-export const CONTAINER = process.env.EMULATOR_CONTAINER ?? 'cloud-dojo-emulator'
-export const EMU_PORT = Number(process.env.EMULATOR_PORT ?? 9297)
+export const CONTAINER = process.env.CLOUD_DOJO_EMULATOR_NAME ?? process.env.EMULATOR_CONTAINER ?? DEFAULT_EMU_NAME
+export const EMU_PORT = Number(process.env.CLOUD_DOJO_EMULATOR_PORT ?? process.env.EMULATOR_PORT ?? DEFAULT_EMU_PORT)

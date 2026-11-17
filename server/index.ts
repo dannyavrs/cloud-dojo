@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { Dojo } from './app'
 import { migrateOnBoot } from './data-migration'
-import { makeServerInfo, portConflict } from './info'
-import { APP_DIR } from './paths'
+import { makeServerInfo, portConflict, emulatorConflict } from './info'
+import { APP_DIR, CONTAINER, EMU_PORT } from './paths'
 import { tutorStatus } from './llm'
 import { LESSONS } from '../shared/lessons'
 import { DEFAULT_API_PORT } from '../shared/ports'
@@ -14,7 +14,7 @@ import { handleTutor, handleTutorTest } from './tutor'
 import { handleDashboard } from './dashboard-api'
 
 const PORT = Number(process.env.PORT ?? DEFAULT_API_PORT)
-const conflict = portConflict(PORT)
+const conflict = portConflict(PORT) ?? emulatorConflict()
 if (conflict) { console.error(`[dojo] ${conflict}`); process.exit(2) }
 migrateOnBoot()
 const app = new Dojo(() => tutorStatus(new Headers(), process.env))
@@ -147,6 +147,6 @@ Bun.serve({
     }
   },
 })
-console.log(`[dojo] server on http://127.0.0.1:${PORT} (instance ${info.instanceId.slice(0, 8)})`)
+console.log(`[dojo] server on http://127.0.0.1:${PORT} (instance ${info.instanceId.slice(0, 8)}, emulator ${CONTAINER} :${EMU_PORT})`)
 process.on('SIGINT', async () => { await app.emu.stop(); process.exit(0) })
 process.on('SIGTERM', async () => { await app.emu.stop(); process.exit(0) })

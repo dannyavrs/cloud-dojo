@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { LESSONS } from '../shared/lessons'
 import { doneKind, passedCount, withHistory } from '../shared/history'
-import { DEFAULT_API_PORT, DEFAULT_WEB_PORT, TEST_API_PORT, TEST_WEB_PORT } from '../shared/ports'
+import { DEFAULT_API_PORT, DEFAULT_EMU_NAME, DEFAULT_EMU_PORT, DEFAULT_WEB_PORT, TEST_API_PORT, TEST_EMU_NAME, TEST_EMU_PORT, TEST_WEB_PORT } from '../shared/ports'
 import type { CheckResult, LessonContent, ModuleProgress } from '../shared/types'
 import { Dojo } from '../server/app'
 import { backupPath, writeFileAtomic } from '../server/atomic-file'
 import { mergeLegacyProgress } from '../server/data-migration'
-import { makeServerInfo, portConflict } from '../server/info'
-import { DATA_DIR, DEFAULT_DATA_DIR } from '../server/paths'
+import { makeServerInfo, portConflict, emulatorConflict } from '../server/info'
+import { CONTAINER, DATA_DIR, DEFAULT_DATA_DIR, EMU_PORT } from '../server/paths'
 import { Progress } from '../server/progress'
 import { buildExport, mergeData, parseImport, type ProgressData } from '../server/progress-io'
 
@@ -211,6 +211,9 @@ describe('no hijacking', () => {
     expect([TEST_API_PORT, TEST_WEB_PORT]).toEqual([4848, 5274])
     expect(TEST_API_PORT).not.toBe(DEFAULT_API_PORT)
     expect(TEST_WEB_PORT).not.toBe(DEFAULT_WEB_PORT)
+    expect([CONTAINER, EMU_PORT]).toEqual([TEST_EMU_NAME, TEST_EMU_PORT])
+    expect(CONTAINER).not.toBe(DEFAULT_EMU_NAME)
+    expect(EMU_PORT).not.toBe(DEFAULT_EMU_PORT)
   })
 
   test('a custom data dir is reported by the server info, the default is not echoed', () => {
@@ -225,6 +228,35 @@ describe('no hijacking', () => {
     expect(portConflict(DEFAULT_API_PORT, tmp())).toMatch(/reserved/)
     expect(portConflict(TEST_API_PORT, tmp())).toBeNull()
     expect(portConflict(DEFAULT_API_PORT, DEFAULT_DATA_DIR)).toBeNull()
+  })
+
+  test('a custom data dir refuses the learner emulator name and port', () => {
+    const dir = tmp()
+    expect(emulatorConflict(DEFAULT_EMU_NAME, TEST_EMU_PORT, dir)).toMatch(/reserved/)
+    expect(emulatorConflict(TEST_EMU_NAME, DEFAULT_EMU_PORT, dir)).toMatch(/reserved/)
+    expect(emulatorConflict(DEFAULT_EMU_NAME, DEFAULT_EMU_PORT, dir)).toMatch(/reserved/)
+    expect(emulatorConflict(TEST_EMU_NAME, TEST_EMU_PORT, dir)).toBeNull()
+    expect(emulatorConflict(DEFAULT_EMU_NAME, DEFAULT_EMU_PORT, DEFAULT_DATA_DIR)).toBeNull()
+  })
+
+  test('with-temp-data refuses the learner emulator name or port', async () => {
+    const root = path.resolve(import.meta.dirname, '..')
+    const run = async (extra: Record<string, string>) => {
+      const p = Bun.spawn(['bun', 'scripts/with-temp-data.ts', 'bun', '-e', 'console.log("should-not-run")'], {
+        cwd: root, stdout: 'pipe', stderr: 'pipe',
+        env: { ...process.env, ...extra },
+      })
+      const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited])
+      return { code, text: out + err }
+    }
+    const byName = await run({ CLOUD_DOJO_EMULATOR_NAME: DEFAULT_EMU_NAME, CLOUD_DOJO_EMULATOR_PORT: String(TEST_EMU_PORT) })
+    expect(byName.code).toBe(2)
+    expect(byName.text).toMatch(/Refusing/)
+    expect(byName.text).not.toContain('should-not-run')
+    const byPort = await run({ CLOUD_DOJO_EMULATOR_NAME: TEST_EMU_NAME, CLOUD_DOJO_EMULATOR_PORT: String(DEFAULT_EMU_PORT) })
+    expect(byPort.code).toBe(2)
+    expect(byPort.text).toMatch(/Refusing/)
+    expect(byPort.text).not.toContain('should-not-run')
   })
 
   test('scripts and configs never hardcode 4747/5173 (they import shared/ports)', () => {
