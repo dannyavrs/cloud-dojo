@@ -1,0 +1,9 @@
+import type { LessonContent } from '../types'
+import { s3DataProtection } from './s3-data-protection'
+import { s3Lifecycle } from './s3-lifecycle'
+import { s3Multipart } from './s3-multipart'
+import { s3Notifications } from './s3-notifications'
+import { s3Presigned } from './s3-presigned'
+import { s3ReplicationConditional } from './s3-replication-conditional'
+
+export const S3_LESSONS: LessonContent[] = [s3Presigned, s3Multipart, s3Notifications, s3Lifecycle, s3DataProtection, s3ReplicationConditional]

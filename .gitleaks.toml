@@ -1,0 +1,19 @@
+# Cloud Dojo secret-scan config. Extends the default rules; only the clearly fake fixtures below are allowed.
+# Run:  gitleaks dir . -c .gitleaks.toml     (working tree)
+#       gitleaks git . -c .gitleaks.toml     (history)
+[extend]
+useDefault = true
+
+# 1. Test sentinels: fake "API keys" the tests plant to prove a key never leaks (tutor, export, context).
+[[allowlists]]
+description = "fake sentinel keys used by the key-never-leaks tests"
+condition = "AND"
+paths = ['''(^|/)tests/tutor(-byok)?\.test\.ts$''']
+regexes = ['''sk-test-SENTINEL-\d+''']
+
+# 2. Capability-probe ids such as key: 's3-bucket-policy' look like high-entropy "keys" to the generic rule.
+[[allowlists]]
+description = "capability probe ids in server/capabilities.ts (kebab-case names, not secrets)"
+condition = "AND"
+paths = ['''(^|/)server/capabilities\.ts$''']
+regexes = ['''key: '[a-z0-9]+(-[a-z0-9]+)+\'''', '''^[a-z0-9]+(-[a-z0-9]+){1,4}$''']

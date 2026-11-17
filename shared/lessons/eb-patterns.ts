@@ -1,0 +1,76 @@
+import type { LessonContent } from '../types'
+
+export const ebPatterns: LessonContent = {
+  id: 'eb-patterns',
+  n: '9.2',
+  trackId: 'eventbridge',
+  level: 'intermediate',
+  prereqs: ['s3-sqs-lambda'],
+  estMinutes: 25,
+  honesty: 'live',
+  honestyNote: 'Custom buses, rules, pattern matching, `test-event-pattern` and SQS targets (including the queue access policy) all behave like AWS here. Verified on the emulator while building this module.',
+  examTags: ['SAA:Resilient', 'DVA:Dev'],
+  breakItCheck: 'breakit',
+  editable: ['pattern.json'],
+  title: 'Event buses and content-based routing',
+  tagline: 'One order stream, one rule, and only the orders that matter reach the queue.',
+  predict: [
+    { id: 'p1', prompt: 'A rule pattern says `{"detail":{"total":[{"numeric":[">=",100]}]}}`. The producer sends `"total": "250"` (a JSON string, not a number). Does the rule match?', options: ['Yes, 250 is at least 100 whichever way it is written', 'No: numeric matching only applies to JSON numbers, so a string never matches', 'Yes, but only on the default bus', 'It is rejected when you save the rule'], answer: 1, explain: 'Pattern matching is type-strict. A numeric operator matches numbers only, and a plain value like `["250"]` matches the string "250" only. A string where a number was expected is one of the most common reasons a rule silently never fires.' },
+    { id: 'p2', prompt: 'A pattern lists `"tier": ["gold","silver"]` and `"total": [{"numeric":[">",100]}]`. When does an event match?', options: ['If tier is gold or silver, OR the total is above 100', 'If the tier is gold or silver AND the total is above 100', 'Only if tier is both gold and silver', 'Only if every field in the event is listed in the pattern'], answer: 1, explain: 'Values inside one array are OR. Different fields are AND. Fields the pattern does not mention are ignored, so extra detail in the event never hurts a match.' },
+    { id: 'p3', prompt: 'You add an SQS queue as a rule target but never edit the queue access policy. `put-targets` succeeds. What happens to matching events?', options: ['They are delivered, because both are in the same account', 'They are silently not delivered: the queue has to allow events.amazonaws.com to send', 'put-events returns an error to the producer', 'EventBridge creates the policy for you'], answer: 1, explain: 'SQS is a resource-policy target: the queue must allow the EventBridge service principal (ideally scoped to the rule ARN). EventBridge accepts the target either way, and delivery fails later, visible only in the rule\'s FailedInvocations metric. IAM roles are only used for targets like Step Functions or Kinesis.' },
+  ],
+  concept: [
+    'An **event bus** receives events (JSON envelopes with `source`, `detail-type` and a free-form `detail`) and **rules** on that bus decide which targets get which events. Every account has a `default` bus that receives AWS service events. **Custom buses** are for your own applications: you give them their own policies, archives and rules, and `put-events` names the bus. The producer knows nothing about the consumers: adding a second consumer is a new rule, not a code change. That decoupling is the exam answer whenever a question says "without changing the producer".',
+    'A rule\'s **event pattern** is content-based filtering. Pattern shape mirrors event shape. Values inside an array are OR, separate fields are AND, unmentioned fields are ignored. Beyond exact values you get `prefix`, `suffix`, `anything-but`, `exists`, `numeric` (with `=`, `<`, `<=`, `>`, `>=` and ranges) and `$or`. Matching is type-strict: the number `250` and the string `"250"` are different, and `{"numeric": [">=", 100]}` matches numbers only. `aws events test-event-pattern` evaluates a pattern against a sample event without any bus or rule, so you can debug a filter in seconds.',
+    'Three traps appear again and again. First, a rule needs a **target**, and for SQS, SNS and Lambda the permission lives on the target\'s own resource policy (the queue must allow `events.amazonaws.com`; scope it with `aws:SourceArn` to the rule), not on an IAM role. Second, `put-events` is a batch: it returns HTTP 200 even when entries fail, so always read `FailedEntryCount`. Third, a bad pattern never errors at publish time: events just match nothing. EventBridge is at-least-once delivery with no ordering guarantee, so consumers must be idempotent.',
+    'In this module the fixture creates the queue `order-alerts` and nothing else. You build the bus `shop`, test a numeric pattern against two sample orders, see the string-written pattern fail to match, create the rule, authorise the queue, attach it as a target, publish a 250 order and a 5 order, and read the queue: only the large order arrives. The Check button also publishes its own pair of probe orders and verifies the same routing.',
+  ],
+  goal: 'A custom bus `shop` with a rule that routes only orders with `total >= 100` into the queue `order-alerts`, and you have seen a mistyped numeric pattern match nothing.',
+  steps: [
+    { id: 'bus', title: 'Create the custom bus', body: 'Your application gets its own bus, separate from `default`.', commands: ['aws events create-event-bus --name shop'] },
+    { id: 'test', title: 'Test the pattern before deploying it', body: '`pattern.json` matches orders with `total >= 100`. `test-event-pattern` needs no bus or rule. The big order (`total` 250) should answer `true`, the small one (`total` 5) `false`.', commands: ['aws events test-event-pattern --event-pattern file://pattern.json --event file://event-big.json --query Result', 'aws events test-event-pattern --event-pattern file://pattern.json --event file://event-small.json --query Result'] },
+    { id: 'break', title: 'Break it: write the number as a string', body: '`pattern-string.json` says `">=100"` inside an array: it looks like a comparison but is just the literal string `>=100`. The command succeeds, the pattern is valid, and the answer is `false` for an order that is obviously over 100. Nothing tells you the pattern is wrong.', commands: ['aws events test-event-pattern --event-pattern file://pattern-string.json --event file://event-big.json --query Result'], breakIt: true },
+    { id: 'rule', title: 'Create the rule with the good pattern', body: 'A rule belongs to one bus. It is enabled by default.', commands: ['aws events put-rule --name big-orders --event-bus-name shop --event-pattern file://pattern.json'] },
+    { id: 'policy', title: 'Let EventBridge send to the queue', body: '`queue-policy.json` allows `events.amazonaws.com` to `sqs:SendMessage`, only when the call comes from the rule `big-orders` on bus `shop` (the rule ARN contains the bus name). Without it, the next step still succeeds and nothing would ever arrive.', commands: ['aws sqs set-queue-attributes --queue-url https://sqs.us-east-1.amazonaws.com/000000000000/order-alerts --attributes file://queue-policy.json'] },
+    { id: 'target', title: 'Attach the queue as the rule target', body: 'A target has an `Id` unique within the rule and the destination ARN. A rule can have up to five targets.', commands: ['aws events put-targets --rule big-orders --event-bus-name shop --targets Id=order-alerts-queue,Arn=arn:aws:sqs:us-east-1:000000000000:order-alerts'] },
+    { id: 'send', title: 'Publish a big and a small order', body: '`events.json` has two entries for bus `shop`, totals 250 and 5. Check `FailedEntryCount` is 0 in the answer.', commands: ['aws events put-events --entries file://events.json'] },
+    { id: 'receive', title: 'Read the queue', body: 'Wait a second or two. You should get exactly one message: the envelope for order `o-big`, with `detail.total` 250. The small order matched no rule and was dropped by the bus.', commands: ["aws sqs receive-message --queue-url https://sqs.us-east-1.amazonaws.com/000000000000/order-alerts --max-number-of-messages 10 --wait-time-seconds 3 --query 'Messages[].Body'"] },
+  ],
+  breakIt: {
+    title: 'A numeric pattern written as a string',
+    command: 'aws events test-event-pattern --event-pattern file://pattern-string.json --event file://event-big.json --query Result',
+    explain: [
+      'The answer is `false` and the exit code is 0. EventBridge accepts `[">=100"]` as a perfectly valid pattern: it means "the field equals the string `>=100`". Numeric comparison needs the object form `{"numeric": [">=", 100]}`, and numbers must be numbers, not strings.',
+      'This is why `test-event-pattern` belongs in your workflow: a wrong pattern is never rejected, it just never matches, and in production you would find out from missing downstream work. Test with a real sample event before you create the rule.',
+    ],
+  },
+  realAws: {
+    cost: [
+      'Custom events published to a bus cost about $1.00 per million (us-east-1, approximate). Events from AWS services on the default bus are free. There is no charge for rules or for `test-event-pattern`; the targets (here SQS requests) bill as usual. Check the pricing page: as of 2026-11-15.',
+      'Each put-events entry counts as one event, in 64 KB chunks of payload, so a 130 KB event bills as three.',
+    ],
+    differences: [
+      'On real AWS, delivery failures to a target show up in the rule\'s `FailedInvocations` CloudWatch metric and can be sent to a per-target dead-letter queue (`DeadLetterConfig`). This module does not exercise either.',
+      'Real EventBridge also delivers cross-account and cross-Region by targeting another bus, and offers schema discovery and a sandbox. Neither is part of the emulator walkthrough.',
+      'Rule matching is typically sub-second on AWS. Expect up to a few seconds here.',
+    ],
+    asOf: '2026-11-15',
+    sources: [
+      { label: 'EventBridge event patterns', url: 'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-event-patterns.html' },
+      { label: 'Using resource-based policies for EventBridge (SQS targets)', url: 'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-resource-based.html' },
+      { label: 'EventBridge pricing', url: 'https://aws.amazon.com/eventbridge/pricing/' },
+    ],
+  },
+  fidelity: [{ service: 'EventBridge', pass: 723, total: 968 }, { service: 'SQS', pass: 299, total: 335 }],
+  files: ['pattern.json', 'pattern-string.json', 'event-big.json', 'event-small.json', 'events.json', 'queue-policy.json'],
+  probeNote: 'The delivery check publishes its own pair of probe orders (one big, one small) when you press Check and waits a few seconds for them to arrive.',
+  checks: [
+    { id: 'bus', label: 'The custom bus `shop` exists', hint: 'Run `aws events create-event-bus --name shop`.' },
+    { id: 'tested', label: '`test-event-pattern` said true for the big order and false for the small one', hint: 'Run both test-event-pattern commands from step 2.' },
+    { id: 'breakit', label: 'You saw the string-written numeric pattern fail to match', hint: 'Run test-event-pattern with pattern-string.json and event-big.json: the answer is false.' },
+    { id: 'rule', label: 'Rule `big-orders` on `shop` has a numeric `total` pattern', hint: 'put-rule with pattern.json on bus shop.' },
+    { id: 'policy', label: 'Queue `order-alerts` allows EventBridge to send', hint: 'Apply queue-policy.json.' },
+    { id: 'target', label: 'The rule targets `order-alerts`', hint: 'put-targets with the queue ARN.' },
+    { id: 'delivery', label: 'A probe big order arrives and a probe small order does not', hint: 'Press Check after the rule, policy and target are in place.' },
+  ],
+}

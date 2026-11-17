@@ -1,0 +1,13 @@
+# docker compose up --build   ->  http://127.0.0.1:4747
+# The app starts the emulator container through the host Docker socket. Host networking lets it reach the
+# emulator on 127.0.0.1:9297 and lets your browser reach the app on 127.0.0.1:4747.
+# CLOUD_DOJO_DATA_DIR must be an absolute host path, mounted at the same path inside the container.
+services:
+  dojo:
+    build: .
+    network_mode: host
+    environment:
+      CLOUD_DOJO_DATA_DIR: ${CLOUD_DOJO_DATA_DIR:-/tmp/cloud-dojo-data}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CLOUD_DOJO_DATA_DIR:-/tmp/cloud-dojo-data}:${CLOUD_DOJO_DATA_DIR:-/tmp/cloud-dojo-data}

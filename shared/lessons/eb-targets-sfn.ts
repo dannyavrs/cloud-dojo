@@ -1,0 +1,77 @@
+import type { LessonContent } from '../types'
+
+export const ebTargetsSfn: LessonContent = {
+  id: 'eb-targets-sfn',
+  n: '9.3',
+  trackId: 'eventbridge',
+  level: 'intermediate',
+  prereqs: ['eb-patterns'],
+  estMinutes: 35,
+  honesty: 'live',
+  honestyNote: 'The emulator enforces both target permission models here: the role trust and its `states:StartExecution` permission for Step Functions, and the function resource policy for Lambda. Input path and input transformer deliver exactly the shapes shown. Verified on the emulator while building this module.',
+  examTags: ['SAA:Resilient', 'DVA:Dev', 'DVA:Sec'],
+  breakItCheck: 'breakit',
+  editable: ['targets-transform.json'],
+  title: 'Targets with roles: Step Functions and Lambda',
+  tagline: 'Start a workflow from an event, and find out why it silently does not.',
+  predict: [
+    { id: 'p1', prompt: 'A rule targets a Step Functions state machine with a `RoleArn`. Which service principal must that role\'s trust policy allow?', options: ['states.amazonaws.com, because the target is Step Functions', 'events.amazonaws.com, because EventBridge assumes the role to call StartExecution', 'lambda.amazonaws.com', 'The account root only'], answer: 1, explain: 'EventBridge itself calls `states:StartExecution`, so it assumes the role: the trust policy names `events.amazonaws.com`. The state machine has its own, separate execution role trusted by `states.amazonaws.com`. Mixing the two up is the classic mistake.' },
+    { id: 'p2', prompt: 'The same rule also targets a Lambda function. Where does the permission for EventBridge to invoke the function live?', options: ['In an IAM role on the target, like Step Functions', 'In the function\'s resource-based policy (`lambda add-permission`, principal events.amazonaws.com)', 'In the function\'s execution role', 'Nowhere: same-account invocation is always allowed'], answer: 1, explain: 'Lambda, SQS and SNS targets use the target\'s own resource policy. Step Functions, Kinesis, ECS tasks and a few others use an IAM role you pass in the target. The console quietly adds the Lambda permission for you, which is why CLI, CloudFormation and Terraform users hit this one.' },
+    { id: 'p3', prompt: 'A Step Functions target has `InputPath` set to `$.detail`. What input does the new execution get?', options: ['The whole event envelope, including source and detail-type', 'Only the contents of the `detail` object', 'The event id as a string', 'An empty object, InputPath is ignored for state machines'], answer: 1, explain: '`InputPath` selects a JSON path from the event and passes only that. Use it to hand the workflow just the business payload. When you also want to reshape or add fields, use an `InputTransformer`.' },
+  ],
+  concept: [
+    'A rule\'s target can be much more than a queue. **Step Functions** and **Lambda** turn an event into running code: a Checkout event starts a workflow execution, or invokes a function. The key idea is that **permission lives in different places for different targets**. For Lambda, SQS and SNS, the permission is a **resource-based policy on the target** (`aws lambda add-permission --principal events.amazonaws.com`, scoped by `--source-arn` to the rule). For Step Functions, Kinesis, ECS and others, you pass a `RoleArn` in the target: EventBridge **assumes that role** and calls the target as the role.',
+    'That role needs two things, and each one fails the same silent way. The **trust policy** must allow `events.amazonaws.com` to assume it (not `states.amazonaws.com`: that is the state machine\'s own execution role, a different role). The **permission policy** must allow `states:StartExecution` on the state machine. `put-targets` succeeds in all cases. Failure only shows up when an event arrives: no execution, no error to the producer. On AWS you find it in the rule\'s `FailedInvocations` metric. Remember the split: trust = who may assume the role, permissions = what the role may do.',
+    'Targets also control the **input** that is delivered. By default the whole event envelope (version, id, source, detail-type, account, time, region, resources, detail) is passed. `InputPath` selects a part, usually `$.detail`. `InputTransformer` builds a new document from a few extracted fields: `InputPathsMap` names values (`{"order": "$.detail.orderId"}`) and `InputTemplate` is a JSON template using `<order>`. An unquoted placeholder like `<total>` inserts a number, a quoted one a string. Constant input (`Input`) ignores the event completely.',
+    'In this module the fixture gives you the bus `shop`, a state machine `order-flow` (a single Pass state, so the execution input is easy to read), two roles and a Lambda function `order-logger`. You will attach the state machine with the wrong role and see nothing happen, then a role with the right trust but no permission and see nothing again, then fix the permission and watch executions start. Finally you reshape the input with a transformer and wire the Lambda function the other way: with a resource policy.',
+  ],
+  goal: 'Events on bus `shop` with source `shop.checkout` start executions of `order-flow` through a correctly trusted and permitted role, with the payload reshaped by an input transformer, and also invoke the function `order-logger`.',
+  steps: [
+    { id: 'look', title: 'Read the two roles\' trust policies', body: 'The fixture made two roles that both look usable. `eb-to-flow` and `lambda-to-flow` differ in who may assume them. Read the trusted service of each.', commands: ['aws iam get-role --role-name eb-to-flow --query Role.AssumeRolePolicyDocument.Statement[0].Principal.Service', 'aws iam get-role --role-name lambda-to-flow --query Role.AssumeRolePolicyDocument.Statement[0].Principal.Service'] },
+    { id: 'rule', title: 'Create the rule', body: '`pattern.json` matches events from `shop.checkout`.', commands: ['aws events put-rule --name to-flow --event-bus-name shop --event-pattern file://pattern.json'] },
+    { id: 'break', title: 'Break it: a role EventBridge cannot assume', body: '`targets-wrong.json` uses `lambda-to-flow` (which even has `states:StartExecution`) and `InputPath` `$.detail`. `put-targets` succeeds. Publish one checkout event, wait about 4 seconds, then list executions of `order-flow`: the list is empty and nothing told you why.', commands: ['aws events put-targets --rule to-flow --event-bus-name shop --targets file://targets-wrong.json', 'aws events put-events --entries file://events.json', "aws stepfunctions list-executions --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:order-flow --query 'executions[].name'"], breakIt: true },
+    { id: 'role', title: 'Use the role with the right trust', body: '`targets-ok.json` uses `eb-to-flow`, which trusts `events.amazonaws.com`. Replace the target (same Id), publish again, wait, list. Still empty. Trust lets EventBridge assume the role, but the role has no permissions yet. This time there is no error either.', commands: ['aws events put-targets --rule to-flow --event-bus-name shop --targets file://targets-ok.json', 'aws events put-events --entries file://events.json', "aws stepfunctions list-executions --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:order-flow --query 'executions[].name'"] },
+    { id: 'policy', title: 'Allow the role to start the workflow', body: '`start-policy.json` allows `states:StartExecution` on `order-flow` only. Events that failed before are not replayed on the emulator; publish a new one.', commands: ['aws iam put-role-policy --role-name eb-to-flow --policy-name start-flow --policy-document file://start-policy.json'] },
+    { id: 'run', title: 'Publish again and read the execution input', body: 'Wait about 4 seconds. One execution appears. With `InputPath` `$.detail` its input is just the order (`orderId`, `total`), not the whole envelope. Copy the execution ARN from the first command into the second.', commands: ['aws events put-events --entries file://events.json', "aws stepfunctions list-executions --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:order-flow --query 'executions[0].executionArn' --output text", 'aws stepfunctions describe-execution --execution-arn <EXECUTION_ARN> --query input --output text'] },
+    { id: 'transform', title: 'Reshape the input with a transformer', body: '`targets-transform.json` replaces `InputPath` with an `InputTransformer`: it pulls `orderId`, `total` and `source` out of the event and builds `{"order": ..., "total": <number>, "via": ...}`. Open the file to see how `<total>` is unquoted. Put it, publish, and read the newest execution (the list is newest first).', commands: ['aws events put-targets --rule to-flow --event-bus-name shop --targets file://targets-transform.json', 'aws events put-events --entries file://events.json', "aws stepfunctions list-executions --state-machine-arn arn:aws:states:us-east-1:000000000000:stateMachine:order-flow --query 'executions[0].executionArn' --output text", 'aws stepfunctions describe-execution --execution-arn <EXECUTION_ARN> --query input --output text'] },
+    { id: 'lambda', title: 'Add a Lambda target (no role)', body: 'A second rule sends the same events to `order-logger`. Lambda needs no `RoleArn`: the permission belongs to the function. Create the rule and target now, before granting anything.', commands: ['aws events put-rule --name to-logger --event-bus-name shop --event-pattern file://pattern.json', 'aws events put-targets --rule to-logger --event-bus-name shop --targets Id=logger,Arn=arn:aws:lambda:us-east-1:000000000000:function:order-logger'] },
+    { id: 'invoke-perm', title: 'Grant EventBridge permission to invoke the function', body: '`add-permission` writes the function\'s resource policy. `--source-arn` limits it to this one rule, so no other rule or account can invoke through the same principal (the confused-deputy guard).', commands: ['aws lambda add-permission --function-name order-logger --statement-id from-to-logger --action lambda:InvokeFunction --principal events.amazonaws.com --source-arn arn:aws:events:us-east-1:000000000000:rule/shop/to-logger'] },
+    { id: 'logs', title: 'Publish and read the function logs', body: 'The first invocation starts a cold container, so wait about 10 seconds. The log shows the whole envelope: a Lambda target without `InputPath` receives the full event.', commands: ['aws events put-events --entries file://events.json', "aws logs filter-log-events --log-group-name /aws/lambda/order-logger --query 'events[].message' --output text"] },
+  ],
+  breakIt: {
+    title: 'A target role EventBridge is not allowed to assume',
+    command: 'aws events put-targets --rule to-flow --event-bus-name shop --targets file://targets-wrong.json',
+    explain: [
+      'The target was accepted, the event was published with `FailedEntryCount` 0, and no execution ever started. The role\'s trust policy names `lambda.amazonaws.com`, so when EventBridge tried to assume it, the call was refused. The failure is asynchronous: nobody who published or configured anything gets an error.',
+      'On AWS you diagnose this from the rule\'s `FailedInvocations` CloudWatch metric (and a dead-letter queue on the target if you configured one). The same silence comes from a role with the right trust but no `states:StartExecution`: both of the first two attempts look identical, so check trust and permissions separately.',
+    ],
+  },
+  realAws: {
+    cost: [
+      'Rules and targets are free. Custom events cost about $1.00 per million published (us-east-1, approximate). Standard Step Functions workflows bill per state transition (about $0.025 per 1,000 after the free tier), and Lambda bills per request and GB-second. As of 2026-11-15; check the pricing pages.',
+      'A failed invocation is not billed as a custom event, but retries to the target are not free of effects: size your target for at-least-once delivery.',
+    ],
+    differences: [
+      'Real EventBridge retries failed target invocations with exponential backoff for up to 24 hours or 185 attempts by default (configurable with `RetryPolicy`), and can park the event in a per-target SQS dead-letter queue. The emulator did not retry within the seconds observed, so fix the cause and publish a new event.',
+      'On AWS the identity calling `put-targets` also needs `iam:PassRole` on the target role. The emulator does not check that.',
+      'The console adds the Lambda invoke permission for you when you add a Lambda target. The CLI, CloudFormation, CDK and Terraform do not (the CDK does, for its own constructs).',
+    ],
+    asOf: '2026-11-15',
+    sources: [
+      { label: 'Using IAM roles for EventBridge targets', url: 'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-use-identity-based.html' },
+      { label: 'Amazon EventBridge input transformation', url: 'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-transform-target-input.html' },
+      { label: 'Retrying and dead-letter queues for targets', url: 'https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-rule-dlq.html' },
+    ],
+  },
+  fidelity: [{ service: 'EventBridge', pass: 723, total: 968 }, { service: 'Step Functions', pass: 738, total: 987 }, { service: 'Lambda', pass: 395, total: 788 }],
+  files: ['pattern.json', 'events.json', 'targets-wrong.json', 'targets-ok.json', 'targets-transform.json', 'start-policy.json'],
+  checks: [
+    { id: 'breakit', label: 'You saw a wrongly trusted role start no execution', hint: 'Run the break-it step: put-targets with targets-wrong.json, put-events, then list-executions (empty).' },
+    { id: 'target', label: 'Rule `to-flow` targets `order-flow` with the role `eb-to-flow`', hint: 'put-targets with targets-ok.json (or targets-transform.json).' },
+    { id: 'perm', label: 'Role `eb-to-flow` may call `states:StartExecution`', hint: 'put-role-policy with start-policy.json.' },
+    { id: 'exec', label: 'An execution received only the `detail` payload (InputPath)', hint: 'After the policy, use targets-ok.json and publish an event.' },
+    { id: 'transform', label: 'An execution received the transformed shape (`order`, `total`, `via`)', hint: 'put-targets with targets-transform.json, publish, then list executions.' },
+    { id: 'lambdaperm', label: 'Rule `to-logger` targets `order-logger` and the function allows EventBridge', hint: 'put-targets for the function, then lambda add-permission.' },
+    { id: 'lambdaran', label: 'The function logged a checkout event', hint: 'Publish an event after add-permission; wait about 10 s for the cold start.' },
+  ],
+}

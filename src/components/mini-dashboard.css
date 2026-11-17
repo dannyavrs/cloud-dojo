@@ -1,0 +1,78 @@
+/* Mini CloudWatch dashboard (module 10.4). Uses the dojo tokens; tonal panels, no nested cards. */
+.md { overflow: hidden; }
+:root[data-theme='light'] .md { --md-accent: #b45f00; }
+.md-grid-wrap { container-type: inline-size; padding: 12px; }
+.md-board { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); grid-auto-rows: 30px; gap: 10px; }
+.md-w {
+  grid-column: calc(var(--x) + 1) / span var(--w);
+  grid-row: calc(var(--y) + 1) / span var(--h);
+  min-width: 0; min-height: 0; overflow: hidden;
+  background: var(--raised); border-radius: 6px; padding: 10px 12px 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.md-w-text { background: transparent; padding: 2px 4px; }
+.md-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.005em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* chart */
+.md-chart { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: space-between; }
+.md-chart svg { display: block; overflow: visible; touch-action: pan-y; }
+.md-grid { stroke: var(--line); stroke-width: 1; }
+.md-tick { fill: var(--text3); font: 500 10.5px var(--mono); font-feature-settings: 'tnum' 1; }
+.md-threshold { stroke: var(--bad); stroke-width: 1.25; stroke-dasharray: 5 4; opacity: .85; }
+.md-threshold-label { fill: var(--bad); }
+.md-cursor { stroke: var(--text3); stroke-width: 1; }
+.md-nodata { margin: 0; color: var(--text3); font-size: 12.5px; }
+.md-chart > .md-nodata { position: absolute; inset: 0 0 24px; display: grid; place-items: center; }
+.md-error { margin: 0; color: var(--bad); font-size: 12.5px; }
+.md-tip { position: absolute; top: 4px; z-index: 2; display: grid; gap: 2px; min-width: 120px; padding: 6px 8px; font-size: 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: var(--shadow); pointer-events: none; }
+.md-tip b { font-weight: 600; font-family: var(--mono); font-size: 11.5px; color: var(--text2); }
+.md-tip span { display: flex; align-items: center; gap: 6px; color: var(--text); white-space: nowrap; }
+.md-tip i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.md-tip em { margin-left: auto; padding-left: 10px; font-style: normal; font-weight: 600; font-variant-numeric: tabular-nums; }
+.md-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 2px 0 0; font-size: 12px; color: var(--text2); }
+.md-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.md-legend em { font-style: normal; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* single value */
+.md-single { flex: 1; min-height: 0; display: flex; flex-wrap: wrap; align-content: center; gap: 4px 22px; }
+.md-single p { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--text3); }
+.md-num { display: flex; flex-direction: column; }
+.md-num strong { font-size: 28px; line-height: 1.1; font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.md-num span { font-size: 12px; color: var(--text2); }
+
+/* alarms */
+.md-alarms { display: grid; gap: 6px; align-content: start; overflow-y: auto; }
+.md-alarms li { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 8px; align-items: start; font-size: 13px; }
+.md-alarms svg { margin-top: 2px; }
+.md-alarms li > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; align-items: baseline; }
+.md-alarms b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-state { font-size: 12px; font-weight: 600; }
+.md-alarms code { grid-column: 1 / -1; background: none; border: 0; padding: 0; color: var(--text3); font-size: 11.5px; }
+.md-alarms .ok svg, .md-alarms .ok .md-state { color: var(--ok); }
+.md-alarms .bad svg, .md-alarms .bad .md-state { color: var(--bad); }
+.md-alarms .warn svg, .md-alarms .warn .md-state { color: var(--warn); }
+.md-alarms .dim svg, .md-alarms .dim .md-state { color: var(--text3); }
+
+/* text widget */
+.md-text { font-size: 13px; color: var(--text2); line-height: 1.5; max-width: 72ch; }
+.md-text h3 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; color: var(--text); }
+.md-text h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--text); }
+.md-text p { margin: 0; }
+.md-text ul { padding-left: 16px; list-style: disc; }
+.md-text strong { color: var(--text); font-weight: 600; }
+
+/* container states */
+.md-empty { margin: 0; padding: 22px 16px; text-align: center; color: var(--text3); font-size: 13px; line-height: 1.6; }
+.md-empty b { color: var(--text2); font-weight: 600; }
+.md-foot { margin: 0; padding: 8px 16px 10px; border-top: 1px solid var(--line); color: var(--text3); font-size: 12px; line-height: 1.5; }
+
+/* narrow: one column, keep each widget's height */
+@container (max-width: 520px) {
+  .md-w { grid-column: 1 / -1; grid-row: auto / span var(--h); }
+  .md-board { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .md-w { animation: md-in .24s var(--ease) both; }
+  @keyframes md-in { from { opacity: 0; transform: translateY(3px); } }
+}
+.md-threshold-label { paint-order: stroke; stroke: var(--raised); stroke-width: 3px; stroke-linejoin: round; }

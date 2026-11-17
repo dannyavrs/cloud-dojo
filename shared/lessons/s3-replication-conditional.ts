@@ -1,0 +1,72 @@
+import type { LessonContent } from '../types'
+
+export const s3ReplicationConditional: LessonContent = {
+  id: 's3-replication-conditional',
+  n: '2.7',
+  trackId: 's3',
+  level: 'advanced',
+  prereqs: ['s3-versioning'],
+  estMinutes: 30,
+  honesty: 'live',
+  honestyNote: "Replication works on the emulator within one region only (same-region replication). Cross-region replication, Replication Time Control and cross-account setups are not testable here. Conditional writes (If-None-Match and If-Match on PutObject and DeleteObject) are enforced; CopyObject with If-None-Match is not implemented.",
+  examTags: ['SAA:Resilient', 'DVA:Dev'],
+  breakItCheck: 'breakit',
+  editable: ['replication.json'],
+  title: 'Replication and conditional writes',
+  tagline: 'Copy new orders to a second bucket, discover what replication leaves behind, and make S3 refuse a second write.',
+  predict: [
+    { id: 'p1', prompt: "A bucket already holds 10,000 objects. You enable replication on it. What gets replicated?", options: ["All 10,000 existing objects and every new one", "Only objects written after the rule is created", "Only objects created in the last 24 hours", "Nothing until you restart the bucket"], answer: 1, explain: "Replication acts on new object versions only. Existing objects need S3 Batch Replication (a separate job) or a copy. This is one of the most repeated replication facts in the exams." },
+    { id: 'p2', prompt: "Which prerequisite do both the source and the destination bucket need for cross-Region or same-Region replication?", options: ["Object Lock enabled", "Versioning enabled", "Transfer Acceleration", "Public access"], answer: 1, explain: "Replication copies object versions, so versioning must be on for both buckets. S3 refuses to save a replication configuration on a source bucket without versioning." },
+    { id: 'p3', prompt: "Two clients race to create `invoice-17.json` with `PutObject` and `If-None-Match: *`. What do they get?", options: ["Both succeed, the last writer wins", "One gets 200, the other gets 412 PreconditionFailed", "Both get 409", "One gets 200, the other gets 403"], answer: 1, explain: "`If-None-Match: *` means 'only if no object exists at this key'. S3 evaluates it atomically, so exactly one writer wins and the other receives 412 PreconditionFailed (or 409 ConditionalRequestConflict if the writes overlap in flight). No lock table needed." },
+  ],
+  concept: [
+    "**Replication copies new object versions asynchronously to another bucket.** Same-Region replication (SRR) and cross-Region replication (CRR) share the same configuration: a replication rule with a filter (prefix, tags, or the whole bucket), a destination bucket, an IAM role S3 assumes (source needs `s3:GetReplicationConfiguration`, `ListBucket`, `GetObjectVersionForReplication`; destination `ReplicateObject`, `ReplicateDelete`, `ReplicateTags`), and **versioning on both buckets**. CRR serves latency and compliance (distance), SRR serves log aggregation, prod-to-test copies and separate-account backups. Replication is asynchronous, typically within minutes (15 minutes at the 99.99% level with **Replication Time Control**, which adds metrics and events). The things that are never replicated by default: objects that existed **before** the rule (use S3 Batch Replication), version-specific deletes (so a malicious `DeleteObject --version-id` cannot propagate), lifecycle actions (each bucket runs its own rules), and objects that are themselves replicas (**no chaining**: A to B to C needs a second hop from the original, not from B).",
+    "The knobs the exams test: **delete markers** replicate only if you ask (`DeleteMarkerReplication: Enabled` in the V2 schema, and it requires a rule with a `Filter` and a `Priority`); the replica's **owner and storage class** can be overridden (`AccessControlTranslation`, `StorageClass` in the destination); **SSE-KMS** objects replicate only if you enable `SourceSelectionCriteria.SseKmsEncryptedObjects` and name a `ReplicaKmsKeyID` in the destination Region, and SSE-C objects are not replicated; cross-account replication needs a destination bucket policy. Source objects show `ReplicationStatus` of `PENDING`, `COMPLETED` or `FAILED`; replicas show `REPLICA`. A failure usually means the role lacks a permission, the destination bucket is not versioned, or a KMS grant is missing. Multi-Region Access Points and two-way replication (with replica modification sync) handle active-active layouts.",
+    "**Conditional writes** make S3 itself the arbiter of races. `PutObject` (and `CompleteMultipartUpload`) with `If-None-Match: *` creates the object only if the key is free: one concurrent writer wins, the rest get **412 PreconditionFailed**, or **409 ConditionalRequestConflict** when a competing write is still in flight. `If-Match: <ETag>` is compare-and-swap: overwrite only if the current object still has the ETag you read, which gives optimistic locking on a whole object. Deletes accept `If-Match` too. Before this feature, teams bolted on a DynamoDB lock table. Bucket policies can now **require** conditional headers on uploads, so a client cannot skip the protection. Remember the contrast with versioning: versioning keeps every write, conditional writes decide whether a write happens at all.",
+    "In this module the fixture gives you `orders-src` and `orders-dst` (both unversioned), a role `s3-repl-role` that S3 may assume, and an old object `orders/old.json` that exists before any rule. You will try to apply `replication.json` too early (versioning missing), turn versioning on, fix and apply the rule, upload new objects and see which one is replicated, then prove old objects stay behind. Then you will do a create-only write twice (the second is the break-it) and a compare-and-swap with `If-Match`. Same-Region only here: the emulator runs one region.",
+  ],
+  goal: "`orders-src` replicates `orders/` to `orders-dst`, the new object arrived and the old one did not, and S3 refused a second create-only write with 412.",
+  steps: [
+    { id: 'early', title: 'Apply the rule before versioning is on', body: "Open `replication.json`: one rule for prefix `orders/` into the destination bucket, using the role the fixture created. Apply it right away. S3 refuses, because replication needs versioning on the source (and, on AWS, the destination).", commands: ['aws s3api put-bucket-replication --bucket orders-src --replication-configuration file://replication.json'] },
+    { id: 'versioning', title: 'Turn versioning on for both buckets', body: "The destination must be versioned too, even though the emulator is more lenient than AWS about it.", commands: ['aws s3api put-bucket-versioning --bucket orders-src --versioning-configuration Status=Enabled', 'aws s3api put-bucket-versioning --bucket orders-dst --versioning-configuration Status=Enabled'] },
+    { id: 'config', title: 'Fix the destination and apply the rule', body: "The destination ARN in `replication.json` has a typo (`orders-dest`): edit it to `arn:aws:s3:::orders-dst` and Save. The emulator accepts a typo and would fail silently later, AWS would not accept a non-existent bucket. Apply, then read the configuration back.", commands: ['aws s3api put-bucket-replication --bucket orders-src --replication-configuration file://replication.json', 'aws s3api get-bucket-replication --bucket orders-src'] },
+    { id: 'copy', title: 'Write a new order and an unrelated object', body: "`orders/order-1.json` matches the rule, `other/note.json` does not. After a couple of seconds look at the destination: only the order is there, flagged `REPLICA`.", commands: ['aws s3api put-object --bucket orders-src --key orders/order-1.json --body order.json', 'aws s3api put-object --bucket orders-src --key other/note.json --body order.json', "aws s3api list-object-versions --bucket orders-dst --query 'Versions[].[Key,VersionId]' --output text", "aws s3api head-object --bucket orders-dst --key orders/order-1.json --query ReplicationStatus --output text"] },
+    { id: 'old', title: 'What replication leaves behind', body: "`orders/old.json` was written before the rule existed. It matches the prefix, but it was never replicated. This head call returns 404 (Not Found), which is the point. AWS fixes this with S3 Batch Replication.", commands: ['aws s3api head-object --bucket orders-dst --key orders/old.json'] },
+    { id: 'once', title: 'A create-only write', body: "`If-None-Match: *` means 'only if the key does not exist'. The first time, it does not, so it succeeds.", commands: ["aws s3api put-object --bucket orders-src --key orders/invoice-17.json --body order.json --if-none-match '*'"] },
+    { id: 'break', title: 'Break it: the same create-only write again', body: "Run the exact same command. The key exists now, so S3 returns **412 PreconditionFailed** and writes nothing. If two services raced for this key, exactly one would have won.", commands: ["aws s3api put-object --bucket orders-src --key orders/invoice-17.json --body order.json --if-none-match '*'"], breakIt: true },
+    { id: 'ifmatch', title: 'Compare-and-swap with If-Match', body: "Read the current ETag, then overwrite only if it is unchanged. The first overwrite works and changes the ETag, so repeating the same command (with the old ETag) is refused with 412. Paste the ETag with its quotes, as printed.", commands: ["aws s3api head-object --bucket orders-src --key orders/invoice-17.json --query ETag --output text", 'aws s3api put-object --bucket orders-src --key orders/invoice-17.json --body order-v2.json --if-match <ETAG>', 'aws s3api put-object --bucket orders-src --key orders/invoice-17.json --body order-v2.json --if-match <ETAG>'] },
+  ],
+  breakIt: {
+    title: 'Create the same key twice with If-None-Match',
+    command: "aws s3api put-object --bucket orders-src --key orders/invoice-17.json --body order.json --if-none-match '*'",
+    explain: [
+      "`PreconditionFailed: At least one of the pre-conditions you specified did not hold` (HTTP 412). S3 checked 'does this key exist?' and wrote in one atomic step, so no race window exists between a read and a write. That is the entire benefit over `head-object` followed by `put-object`.",
+      "If two clients had sent it at nearly the same instant, AWS can answer one with 409 `ConditionalRequestConflict` while the first is still being committed: treat both as 'someone else won' and retry only if your logic allows. The same header works for `CompleteMultipartUpload`, so large uploads can be create-only too.",
+    ],
+  },
+  realAws: {
+    cost: [
+      "Replication costs the PUT and storage in the destination, plus inter-Region data transfer for CRR (about $0.02 per GB, us-east-1 to most Regions, check the pricing page). SRR has no transfer charge. Replication Time Control and replication metrics are extra per GB.",
+      "Remember that you now pay for storage twice. Lifecycle rules do not replicate, so expire noncurrent versions in both buckets or the replica grows without bound.",
+    ],
+    differences: [
+      "The emulator replicates within one region in about a second. Real replication is asynchronous, usually minutes, and can fail for permissions; check `ReplicationStatus` and the replication failure events.",
+      "The emulator accepted a replication rule with a non-existent destination bucket and role, and did not require versioning on the destination. AWS validates both. It does enforce versioning on the source, the prefix filter, no replication of pre-existing objects, and `DeleteMarkerReplication: Disabled`.",
+      "`CopyObject` with `If-None-Match` is not implemented on the emulator (it returns NotImplemented). `PutObject`, `DeleteObject` and the 412 response behave as on AWS. Cross-Region replication, RTC, cross-account ownership override and Batch Replication are out of scope here.",
+    ],
+    asOf: '2026-11-13',
+    sources: [{ label: 'Replicating objects within and across Regions', url: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html' }, { label: 'What is and is not replicated', url: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication-what-is-isnot-replicated.html' }, { label: 'Add preconditions to S3 operations with conditional requests', url: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-requests.html' }],
+  },
+  fidelity: [{ service: 'S3', pass: 1025, total: 1226 }, { service: 'IAM', pass: 502, total: 692 }],
+  files: ['replication.json', 'order.json', 'order-v2.json'],
+  probeNote: 'The replication check uploads two probe objects (one under orders/, one outside) and waits up to 12 s to see which reach the destination, when you press Check.',
+  checks: [
+    { id: 'versioning', label: 'Versioning is enabled on orders-src and orders-dst', hint: 'Run put-bucket-versioning on both buckets.' },
+    { id: 'rule', label: 'orders-src replicates prefix orders/ to orders-dst with the replication role', hint: 'Fix the destination ARN in replication.json, Save, then apply it.' },
+    { id: 'replicates', label: 'A new object under orders/ reaches orders-dst and one outside it does not', hint: 'Press Check after the rule is applied.' },
+    { id: 'old', label: 'You saw that orders/old.json was not replicated (404)', hint: 'Run head-object for orders/old.json on orders-dst.' },
+    { id: 'once', label: 'A create-only write (If-None-Match) succeeded the first time', hint: "Run the put-object with --if-none-match '*' for orders/invoice-17.json." },
+    { id: 'breakit', label: 'The same create-only write was refused with PreconditionFailed', hint: 'Run the same put-object a second time.' },
+    { id: 'ifmatch', label: 'An If-Match overwrite worked once and was refused with the stale ETag', hint: 'Read the ETag, overwrite with --if-match, then repeat the same command.' },
+  ],
+}
