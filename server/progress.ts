@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import path from 'node:path'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
 import type { CheckResult, DomainReadiness, ExamAttempt, LessonContent, ModuleProgress, ProgressView, Track } from '../shared/types'
 import { refOf } from '../shared/exam-mode'
+import { backupPath, writeFileAtomic } from './atomic-file'
 import { buildExport, mergeData, MAX_ATTEMPTS, type ExportSettings, type ImportMode, type ProgressData } from './progress-io'
 
 type Store = ProgressData
@@ -12,14 +12,22 @@ export class Progress {
   private file: string
   constructor(file: string) {
     this.file = file
-    try { if (existsSync(file)) this.data = { modules: {}, exams: {}, examAttempts: [], ...JSON.parse(readFileSync(file, 'utf8')) } } catch { /* start clean */ }
+    const read = (f: string): Store | null => {
+      try { return existsSync(f) ? { modules: {}, exams: {}, examAttempts: [], ...JSON.parse(readFileSync(f, 'utf8')) } : null } catch { return null }
+    }
+    const main = read(file)
+    if (main) { this.data = main; return }
+    if (existsSync(file)) {
+      // Unreadable file: keep it for inspection and recover from the last good backup instead of starting empty.
+      try { copyFileSync(file, `${file}.corrupt-${Date.now()}`) } catch { /* best effort */ }
+      console.error(`[dojo] ${file} is not valid JSON; trying ${backupPath(file)}`)
+      const bak = read(backupPath(file))
+      if (bak) this.data = bak
+    }
   }
 
   private save() {
-    mkdirSync(path.dirname(this.file), { recursive: true })
-    const tmp = `${this.file}.tmp`
-    writeFileSync(tmp, JSON.stringify(this.data, null, 2))
-    renameSync(tmp, this.file)
+    writeFileAtomic(this.file, JSON.stringify(this.data, null, 2), { isHealthy: (t) => { JSON.parse(t); return true } })
   }
 
   private mod(id: string): ModuleProgress {
@@ -30,14 +38,34 @@ export class Progress {
   recordChecks(lesson: LessonContent, results: CheckResult[]) {
     const m = this.mod(lesson.id)
     let changed = m.checksTotal !== results.length
+    let newlyPassed = false
     m.checksTotal = results.length
     for (const r of results) {
-      if (r.pass === true && !m.checksPassed.includes(r.id)) { m.checksPassed.push(r.id); changed = true }
+      if (r.pass === true && !m.checksPassed.includes(r.id)) { m.checksPassed.push(r.id); changed = true; newlyPassed = true }
     }
     if (lesson.breakItCheck && !m.breakIt && m.checksPassed.includes(lesson.breakItCheck)) { m.breakIt = true; changed = true }
     if (!lesson.breakItCheck && !m.breakIt) { m.breakIt = true; changed = true } // nothing to break in this module
-    if (!m.completedAt && m.checksTotal > 0 && lesson.checks.every((c) => m.checksPassed.includes(c.id))) { m.completedAt = Date.now(); changed = true }
+    // Completion is verified only when a check passes just now. Otherwise "Undo" on a lesson whose checks all
+    // passed earlier would be reverted by the next poll.
+    if (!m.completedAt && newlyPassed && m.checksTotal > 0 && lesson.checks.every((c) => m.checksPassed.includes(c.id))) { m.completedAt = Date.now(); delete m.manual; changed = true }
     if (changed) this.save()
+  }
+
+  /**
+   * Mark a module done by hand, or undo a completion (manual or verified). Undo clears completedAt and manual but
+   * keeps checksPassed. Marking an already-verified module is a no-op, so "Verified" is never downgraded.
+   */
+  setComplete(moduleId: string, done: boolean): ModuleProgress {
+    const m = this.mod(moduleId)
+    if (done) {
+      if (m.completedAt) return m
+      m.completedAt = Date.now(); m.manual = true
+    } else {
+      if (!m.completedAt && !m.manual) return m
+      delete m.completedAt; delete m.manual
+    }
+    this.save()
+    return m
   }
 
   recordPredict(moduleId: string, qid: string, correct: boolean) {

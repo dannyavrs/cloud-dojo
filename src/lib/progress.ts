@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { ProgressView } from '@shared/types'
+import { doneKind } from '@shared/history'
 import { api } from './api'
 
 let state: ProgressView | null = null
@@ -19,4 +20,11 @@ export function useProgress(): ProgressView | null {
   return v
 }
 
+export const kindOf = (p: ProgressView | null, id: string) => doneKind(p?.modules[id])
 export const isDone = (p: ProgressView | null, id: string) => Boolean(p?.modules[id]?.completedAt)
+
+/** Mark done / undo, then pull the fresh state so every list and the lesson page agree. */
+export async function setModuleDone(id: string, done: boolean): Promise<void> {
+  await api.complete(id, !done)
+  await refreshProgress()
+}

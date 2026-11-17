@@ -26,16 +26,18 @@ const onlyKeys = (o: Record<string, unknown>, allowed: string[], where: string) 
 
 function moduleOf(raw: unknown, where: string): ModuleProgress {
   need(isObj(raw), `${where}: expected an object`)
-  onlyKeys(raw, ['checksPassed', 'checksTotal', 'breakIt', 'predict', 'seconds', 'completedAt', 'lastSeen'], where)
+  onlyKeys(raw, ['checksPassed', 'checksTotal', 'breakIt', 'predict', 'seconds', 'completedAt', 'manual', 'lastSeen'], where)
   need(Array.isArray(raw.checksPassed) && raw.checksPassed.length <= 500 && raw.checksPassed.every((c) => typeof c === 'string' && ID.test(c)), `${where}.checksPassed`)
   need(num(raw.checksTotal) && Number.isInteger(raw.checksTotal) && raw.checksTotal <= 500, `${where}.checksTotal`)
   need(typeof raw.breakIt === 'boolean', `${where}.breakIt`)
   need(isObj(raw.predict) && Object.keys(raw.predict).length <= 100 && Object.entries(raw.predict).every(([k, v]) => ID.test(k) && typeof v === 'boolean'), `${where}.predict`)
   need(num(raw.seconds) && raw.seconds < 1e8, `${where}.seconds`)
   need(raw.completedAt === undefined || num(raw.completedAt), `${where}.completedAt`)
+  need(raw.manual === undefined || typeof raw.manual === 'boolean', `${where}.manual`)
   need(raw.lastSeen === undefined || num(raw.lastSeen), `${where}.lastSeen`)
   const m: ModuleProgress = { checksPassed: [...new Set(raw.checksPassed as string[])], checksTotal: raw.checksTotal as number, breakIt: raw.breakIt, predict: raw.predict as Record<string, boolean>, seconds: raw.seconds as number }
   if (raw.completedAt !== undefined) m.completedAt = raw.completedAt as number
+  if (raw.completedAt !== undefined && raw.manual === true) m.manual = true
   if (raw.lastSeen !== undefined) m.lastSeen = raw.lastSeen as number
   return m
 }
@@ -69,7 +71,7 @@ function attemptOf(raw: unknown, where: string): ExamAttempt {
 }
 
 const pick = (o: unknown, keys: string[]) => (isObj(o) ? Object.fromEntries(keys.filter((k) => k in o).map((k) => [k, o[k]])) : o)
-const MODULE_KEYS = ['checksPassed', 'checksTotal', 'breakIt', 'predict', 'seconds', 'completedAt', 'lastSeen']
+const MODULE_KEYS = ['checksPassed', 'checksTotal', 'breakIt', 'predict', 'seconds', 'completedAt', 'manual', 'lastSeen']
 const EXAM_KEYS = ['answers', 'at']
 const ATTEMPT_KEYS = ['id', 'family', 'startedAt', 'submittedAt', 'durationSec', 'elapsedSec', 'score', 'total', 'byDomain', 'correctRefs', 'wrongRefs']
 
@@ -135,8 +137,8 @@ export function parseImport(raw: unknown, known?: Known): ParseResult {
 const capAttempts = (a: ExamAttempt[]) => [...a].sort((x, y) => x.submittedAt - y.submittedAt).slice(-MAX_ATTEMPTS)
 
 const predictCorrect = (m: ModuleProgress) => Object.values(m.predict).filter(Boolean).length
-/** Rank for "which module record is further along": completed, then checks passed, then break-it, then predictions, then time spent. */
-const rank = (m: ModuleProgress) => [m.completedAt ? 1 : 0, m.checksPassed.length, m.breakIt ? 1 : 0, predictCorrect(m), m.seconds]
+/** Rank for "which module record is further along": completed, verified over manual, then checks passed, then break-it, then predictions, then time spent. */
+const rank = (m: ModuleProgress) => [m.completedAt ? 1 : 0, m.completedAt && !m.manual ? 1 : 0, m.checksPassed.length, m.breakIt ? 1 : 0, predictCorrect(m), m.seconds]
 function moreComplete(a: ModuleProgress, b: ModuleProgress): boolean {
   const ra = rank(a), rb = rank(b)
   for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] > rb[i]
@@ -145,7 +147,7 @@ function moreComplete(a: ModuleProgress, b: ModuleProgress): boolean {
 
 /**
  * Merge rule (default import):
- * - module: keep whichever record is more complete (completed > more checks passed > break-it > more predictions right > more time);
+ * - module: keep whichever record is more complete (completed, verified over marked-by-you > more checks passed > break-it > more predictions right > more time);
  *   on a tie keep the current one. lastSeen is always the newer of the two so "Continue" points at the latest work.
  * - track exam: the newer attempt (`at`) wins.
  * - exam-mode attempts: union by id, newest 50 kept.

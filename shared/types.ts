@@ -93,6 +93,8 @@ export interface CheckResult {
   /** Capstone review: the Well-Architected pillar this row scores, and its sub-checks (null = needs the Check button). */
   pillar?: string
   sub?: { label: string; pass: boolean | null }[]
+  /** UI only: not passing right now, but recorded as passed in an earlier session (see shared/history.ts). */
+  earlier?: boolean
 }
 
 export interface MapNode {
@@ -126,6 +128,19 @@ export interface EmulatorStatus {
   /** true while the one-time capability probe runs */
   probing?: boolean
   tutor: import('./llm').TutorStatus
+  /** Which server answered, and which data folder it writes to. */
+  server?: ServerInfo
+}
+
+export interface ServerInfo {
+  /** Random per server process: a change means the server was restarted. */
+  instanceId: string
+  startedAt: number
+  port: number
+  /** true when the data folder is not the learner's default one (tests, e2e, screenshots, an override) */
+  customDataDir: boolean
+  /** The data folder, only when it is a custom one (the default is never echoed). */
+  dataDir?: string
 }
 
 export interface QuizResult { correct: boolean; answer: number; explain: string }
@@ -137,6 +152,8 @@ export interface ModuleProgress {
   predict: Record<string, boolean>
   seconds: number
   completedAt?: number
+  /** true when the learner marked the module done by hand; absent when the checks verified it */
+  manual?: boolean
   lastSeen?: number
 }
 export interface ExamProgress { answers: Record<string, boolean>; at: number }

@@ -48,7 +48,7 @@ describe('trademark text', () => {
   })
 
   test('"AWS Academy" survives only in the changelog / migration notes and the backward-compat code', () => {
-    const allowed = new Set(['CHANGELOG.md', 'README.md', '.gitleaks.toml', 'docs/OPEN-SOURCE-NOTES.md', 'server/paths.ts', 'server/progress-io.ts', 'src/lib/legacy.ts', 'tests/progress-io.test.ts', 'tests/data-isolation.test.ts', 'tests/gaps.test.ts'])
+    const allowed = new Set(['CHANGELOG.md', 'README.md', '.gitleaks.toml', 'docs/OPEN-SOURCE-NOTES.md', 'server/paths.ts', 'server/data-migration.ts', 'server/progress-io.ts', 'src/lib/legacy.ts', 'tests/progress-io.test.ts', 'tests/data-isolation.test.ts', 'tests/gaps.test.ts'])
     const hits = Bun.spawnSync(['git', 'grep', '--untracked', '-il', 'aws.academy', '--', '.', ':!bun.lock'], { cwd: root }).stdout.toString().split('\n').filter(Boolean)
     for (const f of hits) expect(allowed.has(f), `${f} still says AWS Academy`).toBe(true)
   })

@@ -2,18 +2,23 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { Dojo } from './app'
 import { migrateOnBoot } from './data-migration'
+import { makeServerInfo, portConflict } from './info'
 import { APP_DIR } from './paths'
 import { tutorStatus } from './llm'
 import { LESSONS } from '../shared/lessons'
+import { DEFAULT_API_PORT } from '../shared/ports'
 import { TRACKS } from '../shared/tracks'
 import { examModeInfo, gradeExamMode, startExamMode } from './exam-mode'
 import { parseImport } from './progress-io'
 import { handleTutor, handleTutorTest } from './tutor'
 import { handleDashboard } from './dashboard-api'
 
+const PORT = Number(process.env.PORT ?? DEFAULT_API_PORT)
+const conflict = portConflict(PORT)
+if (conflict) { console.error(`[dojo] ${conflict}`); process.exit(2) }
 migrateOnBoot()
 const app = new Dojo(() => tutorStatus(new Headers(), process.env))
-const PORT = Number(process.env.PORT ?? 4747)
+const info = makeServerInfo(PORT)
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
 const fail = (e: unknown, status = 500) => json({ error: e instanceof Error ? e.message : String(e) }, status)
@@ -33,7 +38,8 @@ Bun.serve({
     // The server can run commands: refuse cross-site browser requests.
     if (req.method !== 'GET' && req.headers.get('origin') && !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.get('origin')!)) return json({ error: 'forbidden origin' }, 403)
     try {
-      if (p === '/api/status') return json({ ...app.status(), tutor: tutorStatus(req.headers, process.env) })
+      if (p === '/api/status') return json({ ...app.status(), tutor: tutorStatus(req.headers, process.env), server: info })
+      if (p === '/api/info') return json(info)
       if (p === '/api/map') return json(await app.map())
       if (p.startsWith('/api/dashboard/')) return handleDashboard(() => app.c, p.slice('/api/dashboard/'.length))
       if (p === '/api/capabilities') return json(app.capabilities ?? { pending: true, probing: app.probing })
@@ -60,7 +66,13 @@ Bun.serve({
         app.progress.recordAttempt(r.attempt)
         return json(r)
       }
-      let t = p.match(/^\/api\/progress\/([\w-]+)\/tick$/)
+      let t = p.match(/^\/api\/progress\/([\w-]+)\/complete$/)
+      if (t && req.method === 'POST') {
+        if (!app.lessonExists(t[1])) return json({ error: 'unknown lesson' }, 404)
+        const body = (await req.json().catch(() => ({}))) as { undo?: unknown }
+        return json({ ok: true, module: app.progress.setComplete(t[1], body.undo !== true) })
+      }
+      t = p.match(/^\/api\/progress\/([\w-]+)\/tick$/)
       if (t && req.method === 'POST') {
         if (!app.lessonExists(t[1])) return json({ error: 'unknown lesson' }, 404)
         const body = (await req.json().catch(() => ({}))) as { seconds?: number }
@@ -135,6 +147,6 @@ Bun.serve({
     }
   },
 })
-console.log(`[dojo] server on http://127.0.0.1:${PORT}`)
+console.log(`[dojo] server on http://127.0.0.1:${PORT} (instance ${info.instanceId.slice(0, 8)})`)
 process.on('SIGINT', async () => { await app.emu.stop(); process.exit(0) })
 process.on('SIGTERM', async () => { await app.emu.stop(); process.exit(0) })

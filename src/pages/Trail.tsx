@@ -1,9 +1,9 @@
-import { ArrowRight, Check, Clock, GraduationCap, Timer } from 'lucide-react'
+import { ArrowRight, Check, Clock, GraduationCap, Timer, Undo2, UserCheck } from 'lucide-react'
 import { LESSONS, modulesOf, shortTitle } from '@shared/lessons'
 import { TRACKS } from '@shared/tracks'
 import type { Track } from '@shared/types'
 import { effectiveHonesty, useCapabilities } from '@/lib/capabilities'
-import { isDone, useProgress } from '@/lib/progress'
+import { isDone, kindOf, setModuleDone, useProgress } from '@/lib/progress'
 import { ServiceTile, serviceForTrack } from '@/lib/services'
 import { HonestyBadge, HonestyLegend } from '@/components/Honesty'
 import { Status } from '@/components/Status'
@@ -37,14 +37,18 @@ function TrackCard({ track }: { track: Track }) {
         {mods.map((m) => {
           const d = isDone(progress, m.id)
           const part = (progress?.modules[m.id]?.checksPassed.length ?? 0) > 0
+          const kind = kindOf(progress, m.id)
           return (
-            <li key={m.id}>
+            <li key={m.id} className="modrow">
               <a href={`#/lesson/${m.id}`}>
                 <span className="lnum">{m.n}</span>
                 <span className="mtitle">{shortTitle(m)}</span>
                 <HonestyBadge honesty={effectiveHonesty(m, caps.report)} note={m.honestyNote} compact />
-                <span className="mstate">{d ? <Status kind="pass" label="Done" /> : part ? <Status kind="progress" label="Started" /> : <span className="mmin">{m.estMinutes} min</span>}</span>
+                <span className="mstate">{kind === 'manual' ? <span className="status pass"><UserCheck size={14} strokeWidth={2.4} />Marked by you</span> : d ? <Status kind="pass" label="Verified" /> : part ? <Status kind="progress" label="Started" /> : <span className="mmin">{m.estMinutes} min</span>}</span>
               </a>
+              {d
+                ? <button type="button" className="rowact" onClick={() => void setModuleDone(m.id, false)} aria-label={`Undo completion of ${m.n} ${shortTitle(m)}`} title="Undo: clears the completed mark, keeps passed checks"><Undo2 size={13} /><span>Undo</span></button>
+                : <button type="button" className="rowact" onClick={() => void setModuleDone(m.id, true)} aria-label={`Mark ${m.n} ${shortTitle(m)} as done`} title="Count this module as done"><Check size={13} /><span>Mark as done</span></button>}
             </li>
           )
         })}

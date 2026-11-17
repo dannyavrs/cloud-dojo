@@ -5,12 +5,13 @@
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import { TEST_API_PORT } from '../shared/ports'
 import { makeClients } from '../server/clients'
 import { parseCredentialsFile } from '../server/env'
 import { EMU_HOST_DIR, EMU_PORT, WORK_ROOT } from '../server/paths'
 import { makeKit, type E2EScript } from './e2e-kit'
 
-const BASE = process.env.BASE ?? 'http://127.0.0.1:4747'
+const BASE = process.env.BASE ?? `http://127.0.0.1:${TEST_API_PORT}`
 const post = (p: string, body?: unknown) => fetch(BASE + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }).then((r) => r.json())
 
 export async function capturePrelude() {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-17: progress fix
+
+Switching module or restarting the server resets the emulator, so live checks dropped to 0 and looked like lost work, and a test run on the learner's port once saved a real session into a temp folder. Progress itself was always sticky; the app now shows it, and test runs can no longer hijack a session.
+
+- **Mark as done / Undo** per module (lesson page and track list): `POST /api/progress/:id/complete` with `{ "undo": true }` to undo. **Verified** (checks confirmed) is told apart from **Marked by you** (`manual: true`, included in export, import and merge). Undo also works on verified modules, clears `completedAt` and `manual`, and keeps `checksPassed`. A verified completion now only happens when a check passes, so an undone module is not re-completed by the next poll.
+- **Passed earlier** on the lesson page, with a calm note that the sandbox was reset and progress is safe.
+- **No hijacking:** tests, e2e, capture and `bun run dev:test` use API **4848** and Vite **5274** (`shared/ports.ts`); a server on a custom data folder refuses port 4747; `/api/info` and `/api/status` expose `instanceId`, `startedAt` and the data folder; the UI shows a banner for a test data folder and when the server restarts mid-session.
+- **Migration:** the data folder is logged at start; a newer `~/.aws-academy/progress.json` is merged into `~/.cloud-dojo/progress.json` with the import rule (idempotent, old folder only read).
+- **Safer saves:** atomic write (same-folder temp file, fsync, rename) with a rolling `progress.json.bak`; a corrupt file is kept as `.corrupt-<time>` and progress is recovered from the `.bak`.
+- Tests for all of the above (temp folders only).
+
 ## 2026-11-15: renamed to Cloud Dojo
 
 The project was called "AWS Academy" until now. It is renamed so that "AWS" is never part of the product name (nominative use only, see the disclaimer in the README).

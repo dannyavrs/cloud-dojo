@@ -17,6 +17,7 @@ import { ExamModePage } from '@/pages/ExamModePage'
 import { LessonPage } from '@/pages/LessonPage'
 import { Trail } from '@/pages/Trail'
 import { Footer } from '@/components/Footer'
+import { Notices } from '@/components/Notices'
 
 function useRoute() {
   const [hash, setHash] = useState(() => {
@@ -88,6 +89,7 @@ export default function App() {
         <ProgressMenu onTheme={setTheme} />
         <button className="iconbtn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>{theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}</button>
       </header>
+      <Notices server={status?.server} />
       <div className="crumbbar">
         <nav aria-label="Breadcrumb"><ol className="crumbs">
           {crumbs.map((c, i) => (

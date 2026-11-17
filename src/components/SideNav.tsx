@@ -3,7 +3,7 @@ import { BookOpen, Check, ChevronDown, ChevronRight, GraduationCap, Info, Timer 
 import { LESSONS, lessonById, modulesOf, shortTitle } from '@shared/lessons'
 import { TRACKS } from '@shared/tracks'
 import { effectiveHonesty, useCapabilities } from '@/lib/capabilities'
-import { isDone, useProgress } from '@/lib/progress'
+import { isDone, kindOf, useProgress } from '@/lib/progress'
 import { readLocal, writeLocal } from '@/lib/store'
 import { useCurrentStep } from '@/lib/step'
 import { ServiceTile, serviceForTrack } from '@/lib/services'
@@ -46,7 +46,7 @@ export function SideNav({ activeId, examTrack, page }: { activeId?: string; exam
                           <span className="lnum">{m.n}</span>
                           <span className="navtext"><span className="navtitle">{shortTitle(m)}</span></span>
                           {m.honesty !== 'live' || effectiveHonesty(m, caps.report) !== 'live' ? <HonestyBadge honesty={effectiveHonesty(m, caps.report)} compact /> : null}
-                          {isDone(progress, m.id) ? <Check className="navdone" size={15} strokeWidth={2.6} aria-label="Completed" /> : null}
+                          {isDone(progress, m.id) ? <Check className="navdone" size={15} strokeWidth={2.6} aria-label={kindOf(progress, m.id) === 'manual' ? 'Marked as done by you' : 'Verified'} /> : null}
                         </a>
                         {activeId === m.id && (
                           <ol className="nsteps" aria-label="Steps in this module">

@@ -1,5 +1,5 @@
 import type { TestResult } from '@shared/llm'
-import type { CapabilityReport, CheckResult, EmulatorStatus, ExamFamily, ExamModeInfo, ExamModeResult, ExamModeStart, ProgressView, QuizResult, ResourceMap, RunRecord } from '@shared/types'
+import type { CapabilityReport, CheckResult, EmulatorStatus, ExamFamily, ExamModeInfo, ExamModeResult, ExamModeStart, ModuleProgress, ProgressView, QuizResult, ResourceMap, RunRecord } from '@shared/types'
 import { llmHeaders, readLlm } from './llm'
 
 async function j<T>(res: Response): Promise<T> {
@@ -20,6 +20,8 @@ export const api = {
   http: (id: string, req: { url: string; method: string; headers?: Record<string, string>; body?: string }) => post(`/api/lessons/${id}/http`, req).then(j<{ status: number; body: string; headers?: Record<string, string> }>),
   saveFile: (id: string, name: string, text: string) => fetch(`/api/lessons/${id}/files/${encodeURIComponent(name)}`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) }).then(j<{ ok: true; rebuilt: string[]; files: string[] }>),
   progress: () => fetch('/api/progress').then(j<ProgressView>),
+  /** Mark a module done by hand, or undo a completion. */
+  complete: (id: string, undo = false) => post(`/api/progress/${id}/complete`, { undo }).then(j<{ ok: true; module: ModuleProgress }>),
   tick: (id: string, seconds: number) => post(`/api/progress/${id}/tick`, { seconds }).catch(() => undefined),
   capabilities: () => fetch('/api/capabilities').then(j<CapabilityReport | { pending: true; probing: boolean }>),
   predict: (id: string, qid: string, choice: number) => post(`/api/quiz/${id}/predict`, { qid, choice }).then(j<QuizResult>),

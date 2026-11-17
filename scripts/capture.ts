@@ -10,9 +10,10 @@ import { chromium, type Page } from 'playwright'
 import { lessonById } from '../shared/lessons'
 import { M2_E2E } from './e2e-m2'
 import { M3_E2E } from './e2e-m3'
+import { TEST_API_PORT } from '../shared/ports'
 import { capturePrelude, seedModule } from './capture-seed'
 
-const BASE = process.env.BASE ?? 'http://127.0.0.1:4747'
+const BASE = process.env.BASE ?? `http://127.0.0.1:${TEST_API_PORT}`
 const DOCS = path.resolve(import.meta.dirname, '../docs')
 const RAW = path.join(DOCS, 'raw')
 await capturePrelude()

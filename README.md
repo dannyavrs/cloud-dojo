@@ -15,7 +15,7 @@ Requirements: [Bun](https://bun.sh), [Docker](https://www.docker.com/products/do
 ```bash
 git clone https://github.com/dannyavrs/cloud-dojo.git && cd cloud-dojo
 bun install
-bun run dev        # API server on :4747, UI on http://127.0.0.1:5173
+bun run dev        # API server on :4747, UI on http://127.0.0.1:5173 (your real session)
 ```
 
 The first run builds a pinned emulator image `cloud-dojo-emulator:1.0.341` (about a minute). No API key is needed for anything except the optional tutor chat (see [Tutor chat](#tutor-chat-optional-bring-your-own-key)). A Docker route that runs the whole app is below under [Run it](#run-it).
@@ -204,6 +204,9 @@ A **mixed, timed practice exam** drawn from every track exam, tagged by SAA doma
 ### Progress, editor and probes
 
 - **Progress** is local-first: a JSON file in the data folder (`~/.cloud-dojo/progress.json`, or `CLOUD_DOJO_DATA_DIR`; the old name `ACADEMY_DATA_DIR` is still read) holds, per module, checks passed, break-it seen, predict answers and time; per track, the exam; per domain, readiness. The home page has **Continue where you left off**. The Progress menu in the header has **Export progress** and **Import progress** (JSON; merge or replace). Exports hold learning progress only, never keys or settings.
+- **Mark as done / Undo.** Every module has a **Mark as done** button (lesson page and track list). The app tells **Verified** (the checker confirmed it) from **Marked by you** (`manual: true` in the file, also in exports and the merge rule). **Undo** works on both: it clears the completed mark and keeps the checks you passed.
+- **Passed earlier.** Switching module or restarting the server resets the emulator, so live checks read empty. Checks you passed before show as *passed earlier* with a note that the sandbox was reset and your progress is safe.
+- **Safer saves.** Progress is written to a temp file and renamed into place, with the previous version kept as `progress.json.bak` (a corrupt file is set aside and recovered from the `.bak`). On start the server logs the data folder, and if `~/.aws-academy/progress.json` is newer than `~/.cloud-dojo/progress.json` it is merged in with the import rule (idempotent; the old folder is only read).
 - **Starter-file editor**: files a module marks editable open in a small editor in the workbench. The server writes only plain-named text files inside that module's own working folder, and rebuilds Lambda zips from edited sources.
 - **HTTP probe**: method, headers and body, to the emulator's origin only. The `aws` runner is unchanged and still `aws`-only.
 
@@ -260,6 +263,8 @@ bun run build
 bun run test:e2e    # needs Docker: every module on a fresh emulator, red before, green after; capstone scored; quizzes graded
 bun run capture     # builds, starts the server, records screenshots + walkthrough video into docs/
 ```
+
+**Test runs never touch your real session.** Your dev server owns ports **4747** (API) and **5173** (Vite). Everything automated uses **4848** (API) and **5274** (Vite) with a temp data folder: `bun run test:e2e`, `bun run capture` and `bun run dev:test` go through `scripts/with-temp-data.ts`, which sets both ports, and a server on a custom data folder refuses to bind 4747. Such a server also reports its data folder (`/api/info`, `/api/status`) and the UI shows a **Test data folder** banner; if the server restarts while a tab is open, the UI says so. The e2e and capture runs restart the shared emulator container (`cloud-dojo-emulator`), so do not run them while a real session is in use; set `EMULATOR_CONTAINER` and `EMULATOR_PORT` to give them a separate emulator.
 
 **Tests never touch your real progress.** `bun test` preloads a throwaway data folder (`tests/setup.ts`), and `test:e2e` and `capture` run through `scripts/with-temp-data.ts`, which creates a fresh `mkdtemp` folder, points `CLOUD_DOJO_DATA_DIR` at it and deletes it afterwards. The e2e and capture scripts refuse to start against `~/.cloud-dojo` or `~/.aws-academy`. Like any run of the app, they need an emulator (Docker) and no real AWS credentials: use dummy ones and `AWS_ENDPOINT_URL` pointing at the emulator if your shell has a real profile.
 

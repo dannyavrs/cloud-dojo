@@ -3,7 +3,8 @@ import { lessonById } from '@shared/lessons'
 import type { CheckResult, EmulatorStatus, ResourceMap } from '@shared/types'
 import { api } from '@/lib/api'
 import { useCapabilities } from '@/lib/capabilities'
-import { refreshProgress } from '@/lib/progress'
+import { doneKind, withHistory } from '@shared/history'
+import { refreshProgress, setModuleDone, useProgress } from '@/lib/progress'
 import { readLocal, useLocal } from '@/lib/store'
 import { Checks } from '@/components/Checks'
 import { FileEditor, HttpProbe } from '@/components/Extras'
@@ -46,7 +47,14 @@ export function LessonPage({ id, status }: { id: string; status: EmulatorStatus 
   useEffect(() => { if (ready) void doStart(false) }, [ready, doStart])
 
   const merged = checks.map((c) => (c.pass === null && probeCache[c.id] !== undefined ? { ...c, pass: probeCache[c.id].pass, ...(probeCache[c.id].sub ? { sub: probeCache[c.id].sub } : {}) } : c))
+  const progress = useProgress()
+  const history = withHistory(merged, progress?.modules[id]?.checksPassed)
   const allGreen = merged.every((c) => c.pass === true)
+  // The server's record is the truth (so Undo sticks even while the live checks are green). Only before progress has loaded
+  // does a live all-green stand in for it.
+  const done = progress ? doneKind(progress.modules[id]) : allGreen ? 'verified' : null
+  const [marking, setMarking] = useState(false)
+  const mark = async (to: boolean) => { setMarking(true); try { await setModuleDone(id, to) } finally { setMarking(false) } }
   // time on module: a small heartbeat while the tab is visible
   useEffect(() => {
     const t = setInterval(() => { if (document.visibilityState === 'visible') void api.tick(id, 15) }, 15000)
@@ -101,7 +109,7 @@ export function LessonPage({ id, status }: { id: string; status: EmulatorStatus 
               <span className="grow" />
               <button className="btn sm" disabled={!ready || busy} onClick={() => void doStart(true)}><Reset />Reset module</button>
             </div>
-            <Checks checks={merged} probeNote={lesson.probeNote} onCheck={() => void runChecks()} checking={checking} done={allGreen} />
+            <Checks checks={history} probeNote={lesson.probeNote} onCheck={() => void runChecks()} checking={checking} done={done} onMark={() => void mark(true)} onUndo={() => void mark(false)} marking={marking} />
             <ResourceMapView map={map} />
             {lesson.id === 'cw-dashboards' && <MiniDashboard name="checkout" active={started} />}
             {lesson.httpProbe && <HttpProbe lessonId={id} onDone={() => void refresh()} />}
